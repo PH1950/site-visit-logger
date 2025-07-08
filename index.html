@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Visit Logger</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        const SiteVisitLogger = () => {
+            const [currentView, setCurrentView] = useState('dashboard');
+            const [visits, setVisits] = useState([]);
+            const [formData, setFormData] = useState({
+                date: new Date().toISOString().split('T')[0],
+                time: new Date().toTimeString().slice(0, 5),
+                siteName: '',
+                reasons: [],
+                clientName: '',
+                comment: ''
+            });
+            const [editingDropdown, setEditingDropdown] = useState(null);
+            const [newOptionValue, setNewOptionValue] = useState('');
+            const [whatsappNumber, setWhatsappNumber] = useState('');
+            const [siteNames, setSiteNames] = useState([]);
+            const [reasons, setReasons] = useState(['Safety Inspection', 'Progress Review', 'Quality Check', 'Client Meeting']);
+            const [clientNames, setClientNames] = useState([]);
+
+            const STORAGE_KEY = 'siteVisitLoggerData';
+
+            useEffect(() => {
+                try {
+                    const savedData = localStorage.getItem(STORAGE_KEY);
+                    if (savedData) {
+                        const data = JSON.parse(savedData);
+                        if (data.visits) setVisits(data.visits);
+                        if (data.siteNames) setSiteNames(data.siteNames);
+                        if (data.reasons) setReasons(data.reasons);
+                        if (data.clientNames) setClientNames(data.clientNames);
+                        if (data.whatsappNumber) setWhatsappNumber(data.whatsappNumber);
+                    }
+                } catch (error) {
+                    console.log('Starting fresh');
+                }
+            }, []);
+
+            useEffect(() => {
+                const dataToSave = { visits, siteNames, reasons, clientNames, whatsappNumber, lastSaved: new Date().toISOString() };
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+                } catch (error) {
+                    console.log('Storage not available');
+                }
+            }, [visits, siteNames, reasons, clientNames, whatsappNumber]);
+
+            const handleSubmit = () => {
+                if (formData.date && formData.time && formData.siteName && formData.reasons.length > 0 && formData.clientName) {
+                    const startTime = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                    const newVisit = {
+                        id: Date.now(),
+                        date: formData.date,
+                        time: formData.time,
+                        startTime: startTime,
+                        completionTime: null,
+                        duration: null,
+                        siteName: formData.siteName,
+                        reasons: [...formData.reasons],
+                        clientName: formData.clientName,
+                        comment: formData.comment,
+                        status: 'in-progress'
+                    };
+                    setVisits(prev => [newVisit, ...prev]);
+                    setFormData({
+                        date: new Date().toISOString().split('T')[0],
+                        time: new Date().toTimeString().slice(0, 5),
+                        siteName: '', reasons: [], clientName: '', comment: ''
+                    });
+                    setCurrentView('dashboard');
+                    alert('✅ Visit started! Use "Complete Visit" button when finished.');
+                } else {
+                    alert('Please fill in all required fields and select at least one reason.');
+                }
+            };
+
+            const completeVisit = (visitId) => {
+                const completionTime = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                setVisits(prev => prev.map(visit => {
+                    if (visit.id === visitId) {
+                        const startTime = new Date(`1970-01-01T${visit.startTime}:00`);
+                        const endTime = new Date(`1970-01-01T${completionTime}:00`);
+                        let durationMs = endTime - startTime;
+                        if (durationMs < 0) durationMs += (24 * 60 * 60 * 1000);
+                        const hours = Math.floor(durationMs / (1000 * 60 * 60));
+                        const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+                        let durationText = '';
+                        if (hours > 0) durationText = `${hours}h`;
+                        if (minutes > 0) durationText += `${hours > 0 ? ' ' : ''}${minutes}m`;
+                        if (!durationText) durationText = '0m';
+                        const completedVisit = { ...visit, completionTime, duration: durationText, status: 'completed' };
+                        sendCompletedVisitReport(completedVisit);
+                        return completedVisit;
+                    }
+                    return visit;
+                }));
+            };
+
+            const sendCompletedVisitReport = (visitData) => {
+                let report = `*Site Visit Report*\n\n📅 Date: ${new Date(visitData.date).toLocaleDateString()}\n🕐 Started: ${visitData.startTime}\n🕐 Completed: ${visitData.completionTime}\n⏱️ Duration: ${visitData.duration}\n🏗️ Site: *${visitData.siteName}*\n👤 Client: ${visitData.clientName}\n📋 Reasons: ${visitData.reasons.join(', ')}\n`;
+                if (visitData.comment) report += `💬 Notes: ${visitData.comment}\n`;
+                report += '\nGenerated by Site Visit Logger\n\n📍 Share your location for complete report';
+                
+                const cleanPhone = whatsappNumber ? whatsappNumber.replace(/[\s\-\(\)]/g, '') : '';
+                const whatsappUrl = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(report)}` : `https://wa.me/?text=${encodeURIComponent(report)}`;
+                
+                try {
+                    window.open(whatsappUrl, '_blank');
+                    alert('📱 Visit report sent to WhatsApp!');
+                } catch (error) {
+                    alert('❌ Could not open WhatsApp. Report copied to clipboard.');
+                    navigator.clipboard?.writeText(report);
+                }
+            };
+
+            const addNewOption = (type) => {
+                if (newOptionValue.trim()) {
+                    if (type === 'sites') setSiteNames(prev => [...prev, newOptionValue.trim()]);
+                    else if (type === 'reasons') setReasons(prev => [...prev, newOptionValue.trim()]);
+                    else if (type === 'clients') setClientNames(prev => [...prev, newOptionValue.trim()]);
+                    setNewOptionValue('');
+                    setEditingDropdown(null);
+                }
+            };
+
+            const removeOption = (type, option) => {
+                if (type === 'sites') setSiteNames(prev => prev.filter(item => item !== option));
+                else if (type === 'reasons') setReasons(prev => prev.filter(item => item !== option));
+                else if (type === 'clients') setClientNames(prev => prev.filter(item => item !== option));
+            };
+
+            const toggleReason = (reason) => {
+                setFormData(prev => ({
+                    ...prev,
+                    reasons: prev.reasons.includes(reason) 
+                        ? prev.reasons.filter(r => r !== reason)
+                        : [...prev.reasons, reason]
+                }));
+            };
+
+            const generateDailySummary = () => {
+                const today = new Date().toISOString().split('T')[0];
+                const todayVisits = visits.filter(visit => visit.date === today);
+                let report = `*Daily Site Visit Summary*\n📅 ${new Date().toLocaleDateString()}\n\n`;
+                if (todayVisits.length === 0) {
+                    report += 'No visits logged for today.';
+                } else {
+                    report += `Total visits today: ${todayVisits.length}\n\n`;
+                    todayVisits.forEach((visit, index) => {
+                        report += `${index + 1}. *${visit.siteName}*\n   👤 ${visit.clientName}\n   📋 ${visit.reasons.join(', ')}\n   🕐 ${visit.startTime || visit.time}`;
+                        if (visit.status === 'completed') report += ` - ${visit.completionTime} (${visit.duration})`;
+                        report += '\n\n';
+                    });
+                }
+                report += 'Generated by Site Visit Logger';
+                
+                const cleanPhone = whatsappNumber ? whatsappNumber.replace(/[\s\-\(\)]/g, '') : '';
+                const whatsappUrl = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(report)}` : `https://wa.me/?text=${encodeURIComponent(report)}`;
+                
+                try {
+                    window.open(whatsappUrl, '_blank');
+                    alert('📱 Daily summary sent to WhatsApp!');
+                } catch (error) {
+                    alert('❌ Could not open WhatsApp. Summary copied to clipboard.');
+                    navigator.clipboard?.writeText(report);
+                }
+            };
+
+            if (currentView === 'add-visit') {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+                        <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl p-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <div>
+                                    <h1 className="text-2xl font-bold text-indigo-600">🏗️ Log Site Visit</h1>
+                                    <p className="text-sm text-gray-600">Add a new site visit record</p>
+                                </div>
+                                <button onClick={() => setCurrentView('dashboard')} className="text-gray-400 hover:text-gray-600 text-3xl leading-none">×</button>
+                            </div>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">📅 Date</label>
+                                    <input type="date" value={formData.date} onChange={(e) => setFormData(prev => ({...prev, date: e.target.value}))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">🕐 Time</label>
+                                    <input type="time" value={formData.time} onChange={(e) => setFormData(prev => ({...prev, time: e.target.value}))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                                </div>
+                                <div>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="block text-sm font-bold text-gray-700">🏗️ Site Name</label>
+                                        <button onClick={() => setEditingDropdown(editingDropdown === 'sites' ? null : 'sites')} className="text-indigo-500 text-sm font-medium hover:text-indigo-700">
+                                            {editingDropdown === 'sites' ? '✓ Done' : '✏️ Edit List'}
+                                        </button>
+                                    </div>
+                                    <select value={formData.siteName} onChange={(e) => setFormData(prev => ({...prev, siteName: e.target.value}))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                        <option value="">Select Site</option>
+                                        {siteNames.map(site => <option key={site} value={site}>{site}</option>)}
+                                    </select>
+                                    {editingDropdown === 'sites' && (
+                                        <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                                            <div className="flex gap-2 mb-3">
+                                                <input type="text" value={newOptionValue} onChange={(e) => setNewOptionValue(e.target.value)} placeholder="Add new site..." className="flex-1 p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500" />
+                                                <button onClick={() => addNewOption('sites')} className="bg-green-500 text-white px-3 py-2 rounded text-sm font-medium hover:bg-green-600">Add</button>
+                                            </div>
+                                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                                                {siteNames.map(site => (
+                                                    <div key={site} className="flex justify-between items-center py-1">
+                                                        <span className="text-sm">{site}</span>
+                                                        <button onClick={() => removeOption('sites', site)} className="text-red-500 text-sm hover:text-red-700">Remove</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="block text-sm font-bold text-gray-700">📋 Reasons for Visit</label>
+                                        <button onClick={() => setEditingDropdown(editingDropdown === 'reasons' ? null : 'reasons')} className="text-indigo-500 text-sm font-medium hover:text-indigo-700">
+                                            {editingDropdown === 'reasons' ? '✓ Done' : '✏️ Edit List'}
+                                        </button>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {reasons.map(reason => (
+                                            <label key={reason} className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                                                <input type="checkbox" checked={formData.reasons.includes(reason)} onChange={() => toggleReason(reason)} className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" />
+                                                <span className="text-sm text-gray-700">{reason}</span>
+                                            </label>
+                                        ))}
+                                        {formData.reasons.length > 0 && (
+                                            <div className="p-2 bg-indigo-50 rounded-lg border border-indigo-200">
+                                                <p className="text-xs text-indigo-700 font-medium">✓ Selected: {formData.reasons.join(', ')}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {editingDropdown === 'reasons' && (
+                                        <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                                            <div className="flex gap-2 mb-3">
+                                                <input type="text" value={newOptionValue} onChange={(e) => setNewOptionValue(e.target.value)} placeholder="Add new reason..." className="flex-1 p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500" />
+                                                <button onClick={() => addNewOption('reasons')} className="bg-green-500 text-white px-3 py-2 rounded text-sm font-medium hover:bg-green-600">Add</button>
+                                            </div>
+                                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                                                {reasons.map(reason => (
+                                                    <div key={reason} className="flex justify-between items-center py-1">
+                                                        <span className="text-sm">{reason}</span>
+                                                        <button onClick={() => removeOption('reasons', reason)} className="text-red-500 text-sm hover:text-red-700">Remove</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="block text-sm font-bold text-gray-700">👤 Client Name</label>
+                                        <button onClick={() => setEditingDropdown(editingDropdown === 'clients' ? null : 'clients')} className="text-indigo-500 text-sm font-medium hover:text-indigo-700">
+                                            {editingDropdown === 'clients' ? '✓ Done' : '✏️ Edit List'}
+                                        </button>
+                                    </div>
+                                    <select value={formData.clientName} onChange={(e) => setFormData(prev => ({...prev, clientName: e.target.value}))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                        <option value="">Select Client</option>
+                                        {clientNames.map(client => <option key={client} value={client}>{client}</option>)}
+                                    </select>
+                                    {editingDropdown === 'clients' && (
+                                        <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                                            <div className="flex gap-2 mb-3">
+                                                <input type="text" value={newOptionValue} onChange={(e) => setNewOptionValue(e.target.value)} placeholder="Add new client..." className="flex-1 p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500" />
+                                                <button onClick={() => addNewOption('clients')} className="bg-green-500 text-white px-3 py-2 rounded text-sm font-medium hover:bg-green-600">Add</button>
+                                            </div>
+                                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                                                {clientNames.map(client => (
+                                                    <div key={client} className="flex justify-between items-center py-1">
+                                                        <span className="text-sm">{client}</span>
+                                                        <button onClick={() => removeOption('clients', client)} className="text-red-500 text-sm hover:text-red-700">Remove</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">💬 Comments (Optional)</label>
+                                    <textarea value={formData.comment} onChange={(e) => setFormData(prev => ({...prev, comment: e.target.value}))} placeholder="Add any additional notes or comments..." rows={3} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none" />
+                                </div>
+                                <button onClick={handleSubmit} className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-4 px-6 rounded-lg font-bold text-lg hover:from-green-600 hover:to-green-700 transform hover:scale-105 transition-all duration-200 shadow-lg">
+                                    🚀 Start Visit
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (currentView === 'settings') {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+                        <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl p-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <div>
+                                    <h1 className="text-2xl font-bold text-indigo-600">⚙️ Settings</h1>
+                                    <p className="text-sm text-gray-600">Configure your preferences</p>
+                                </div>
+                                <button onClick={() => setCurrentView('dashboard')} className="text-gray-400 hover:text-gray-600 text-3xl leading-none">×</button>
+                            </div>
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">📱 WhatsApp Number</label>
+                                    <input type="tel" value={whatsappNumber} onChange={(e) => setWhatsappNumber(e.target.value)} placeholder="+27123456789 (optional)" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" />
+                                    <p className="text-xs text-gray-500 mt-1">Leave empty to choose contact each time, or set a default number</p>
+                                </div>
+                                <div className="bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded-lg border border-green-200">
+                                    <h3 className="font-bold text-green-800 mb-2">📊 App Features</h3>
+                                    <ul className="text-sm text-green-700 space-y-1 mb-4">
+                                        <li>✓ Visit reports with duration tracking</li>
+                                        <li>✓ Daily summary reports</li>
+                                        <li>✓ Multiple visit reasons selection</li>
+                                        <li>✓ Automatic data persistence</li>
+                                        <li>✓ WhatsApp integration</li>
+                                    </ul>
+                                    <button onClick={generateDailySummary} className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-lg font-bold hover:from-green-600 hover:to-green-700 transform hover:scale-105 transition-all duration-200 shadow-lg">
+                                        📊 Send Daily Summary
+                                    </button>
+                                </div>
+                                <div className="text-center text-xs text-gray-500">
+                                    <p>Site Visit Logger v2.0</p>
+                                    <p>Data stored locally on your device</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+                    <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                            <div>
+                                <h1 className="text-2xl font-bold text-indigo-600">🏗️ Site Visit Logger</h1>
+                                <p className="text-sm text-gray-600">Track your site visits effortlessly</p>
+                            </div>
+                            <div className="flex space-x-2">
+                                <button onClick={() => setCurrentView('settings')} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-full transition-colors" title="Settings">
+                                    <span className="text-xl">⚙️</span>
+                                </button>
+                                <button onClick={generateDailySummary} className="bg-green-500 hover:bg-green-600 text-white p-2 rounded-full transition-colors" title="Daily Summary">
+                                    <span className="text-xl">📊</span>
+                                </button>
+                                <button onClick={() => setCurrentView('add-visit')} className="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white p-3 rounded-full transition-all duration-200 transform hover:scale-105 shadow-lg">
+                                    <span className="text-xl">➕</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div className="p-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <h2 className="text-xl font-bold text-gray-800">Recent Visits</h2>
+                                <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">{visits.length} total</span>
+                            </div>
+                            <div className="space-y-4">
+                                {visits.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <div className="text-6xl mb-4">🏗️</div>
+                                        <p className="text-gray-700 font-bold text-lg">No visits logged yet</p>
+                                        <p className="text-sm text-gray-500 mt-1">Tap the + button to add your first visit</p>
+                                    </div>
+                                ) : (
+                                    visits.slice(0, 10).map((visit) => (
+                                        <div key={visit.id} className="bg-gray-50 border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex items-start space-x-3 flex-1">
+                                                    <div className="w-10 h-10 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                                        {visit.siteName ? visit.siteName.charAt(0).toUpperCase() : 'S'}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <h3 className="font-bold text-gray-900 truncate">{visit.siteName}</h3>
+                                                        <p className="text-sm text-gray-600 font-medium">{visit.clientName}</p>
+                                                        <p className="text-sm text-gray-500">{visit.reasons.join(', ')}</p>
+                                                        {visit.comment && <p className="text-xs text-gray-400 italic mt-1">"{visit.comment}"</p>}
+                                                        {visit.status === 'in-progress' && (
+                                                            <div className="mt-2">
+                                                                <span className="inline-flex items-center px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full font-medium">
+                                                                    🔄 In Progress
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                        {visit.status === 'completed' && visit.duration && (
+                                                            <p className="text-xs text-green-600 mt-2 font-medium">⏱️ Duration: {visit.duration}</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="text-right ml-4">
+                                                    <p className="text-sm font-bold text-gray-900">{new Date(visit.date).toLocaleDateString()}</p>
+                                                    <p className="text-sm text-gray-500">{visit.startTime || visit.time}</p>
+                                                    {visit.status === 'in-progress' && (
+                                                        <button onClick={() => completeVisit(visit.id)} className="mt-2 bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors">
+                                                            ✅ Complete
+                                                        </button>
+                                                    )}
+                                                    {visit.status === 'completed' && visit.completionTime && (
+                                                        <p className="text-xs text-green-600 mt-1">Completed: {visit.completionTime}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<SiteVisitLogger />, document.getElementById('root'));
+    </script>
+</body>
+</html>
